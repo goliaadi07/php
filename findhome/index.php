@@ -9,6 +9,7 @@ $dbname = "homebuilder_app";   // Your existing database
 
 $success = false;
 $error_msg = "";
+$tracking_id = ""; // Variable to store the new ID
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Create connection
@@ -33,32 +34,50 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $min_bathrooms = $_POST['min_bathrooms'] ?? '';
     $min_sq_feet = $_POST['min_sq_feet'] ?? 0;
     
-    // Convert array of features to comma-separated string
-    $features = isset($_POST['features']) ? implode(", ", $_POST['features']) : "";
+    // --- FEATURES LOGIC ---
+    $features_list = [];
+    if (isset($_POST['feat_garage'])) {
+        $detail = $_POST['detail_garage'] ? " (" . htmlspecialchars($_POST['detail_garage']) . " cars)" : "";
+        $features_list[] = "Garage" . $detail;
+    }
+    if (isset($_POST['feat_basement'])) {
+        $detail = $_POST['detail_basement'] ? " (" . htmlspecialchars($_POST['detail_basement']) . ")" : "";
+        $features_list[] = "Basement" . $detail;
+    }
+    if (isset($_POST['feat_kitchen'])) {
+        $detail = $_POST['detail_kitchen'] ? " (" . htmlspecialchars($_POST['detail_kitchen']) . ")" : "";
+        $features_list[] = "Updated Kitchen" . $detail;
+    }
+    if (isset($_POST['feat_backyard'])) {
+        $detail = $_POST['detail_backyard'] ? " (" . htmlspecialchars($_POST['detail_backyard']) . ")" : "";
+        $features_list[] = "Backyard" . $detail;
+    }
+    $features = implode(", ", $features_list);
     
     $preferred_locations = $_POST['preferred_locations'] ?? '';
     $additional_reqs = $_POST['additional_reqs'] ?? '';
-    
     $pre_approved = $_POST['pre_approved'] ?? '';
     $first_time_buyer = $_POST['first_time_buyer'] ?? '';
     $buy_timeline = $_POST['buy_timeline'] ?? '';
-    
-    // Capture the signature from the form
     $digital_signature = $_POST['digital_signature'] ?? "Agreed via Checkbox"; 
+
+    // --- GENERATE TRACKING ID ---
+    $tracking_id = "REQ-" . strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8));
 
     // SQL Query
     $sql = "INSERT INTO property_requests (
-        first_name, last_name, email, phone, contact_method,
+        tracking_id, first_name, last_name, email, phone, contact_method,
         property_type, min_price, max_price, min_bedrooms, min_bathrooms, min_sq_feet, features,
         preferred_locations, additional_reqs,
         pre_approved, first_time_buyer, buy_timeline, digital_signature
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     $stmt = $conn->prepare($sql);
     
     if ($stmt) {
-        $stmt->bind_param("ssssssssssisssssss", 
-            $first_name, $last_name, $email, $phone, $contact_method,
+        // 19 types for 19 variables
+        $stmt->bind_param("sssssssssssisssssss", 
+            $tracking_id, $first_name, $last_name, $email, $phone, $contact_method,
             $property_type, $min_price, $max_price, $min_bedrooms, $min_bathrooms, $min_sq_feet, $features,
             $preferred_locations, $additional_reqs,
             $pre_approved, $first_time_buyer, $buy_timeline, $digital_signature
@@ -85,6 +104,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Find Your Dream Home</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --orange: #f37021;
@@ -94,10 +114,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             --bg-cream: #fef9f0;
             --gray-light: #f4f4f4;
             --text-dark: #333;
+            --text-muted: #94a3b8;
+            --success: #22c55e;
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: var(--bg-cream);
             margin: 0;
             display: flex;
@@ -140,29 +162,73 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         .browse-btn i { color: #f37021; }
 
-        /* Progress Bar */
-        .progress-bar-wrapper {
-            display: flex; justify-content: space-between; position: relative;
-            margin-bottom: 30px; padding: 0 20px;
+        /* --- PROGRESS BAR STYLING --- */
+        .top-progress { 
+            height: 10px; 
+            background: #e2e8f0; 
+            border-radius: 999px; 
+            margin: 16px auto 20px; 
+            overflow: hidden; 
+            max-width: 800px;
         }
-        .progress-track {
-            position: absolute; top: 20px; left: 40px; right: 40px; height: 4px; background: #ddd; z-index: 1;
+        .top-progress .fill { 
+            height: 100%; 
+            width: 0; 
+            background: linear-gradient(90deg, #1f2937, var(--orange)); 
+            transition: width .3s ease; 
         }
-        .progress-fill {
-            position: absolute; top: 20px; left: 40px; height: 4px; background: var(--orange); z-index: 2; width: 0%; transition: width 0.4s;
+
+        .steps { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin: 24px auto 30px; 
+            max-width: 850px;
+            padding: 0 10px;
         }
-        .step-item {
-            position: relative; z-index: 3; text-align: center; width: 80px;
+        .step { 
+            flex: 1; 
+            text-align: center; 
+            position: relative; 
+            cursor: pointer;
         }
-        .step-icon {
-            width: 40px; height: 40px; background: #fff; border: 2px solid #ddd;
-            border-radius: 50%; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center;
-            color: #ccc; font-weight: bold; transition: all 0.3s;
+        .bubble {
+            width: 55px; 
+            height: 55px; 
+            border-radius: 50%; 
+            background: #fff; 
+            border: 2px solid #e2ecff;
+            display: inline-flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-weight: 700;
+            box-shadow: 0 10px 30px rgba(15,23,42,0.08); 
+            transition: all 0.3s;
+            font-size: 16px;
+            color: var(--text-muted);
         }
-        .step-item.active .step-icon { border-color: var(--orange); color: var(--orange); }
-        .step-item.completed .step-icon { background: var(--orange); border-color: var(--orange); color: #fff; }
-        .step-label { font-size: 12px; color: #777; }
-        .step-item.active .step-label { color: var(--orange); font-weight: bold; }
+        .step .label { 
+            margin-top: 8px; 
+            color: var(--text-muted); 
+            font-size: 13px; 
+            font-weight: 500;
+        }
+
+        /* Active State */
+        .step.active .bubble { 
+            transform: translateY(-10px); 
+            background: linear-gradient(180deg, var(--orange), var(--orange-dark)); 
+            color: #fff; 
+            border-color: transparent; 
+            box-shadow: 0 15px 35px rgba(243, 112, 33, 0.3);
+        }
+        .step.active .label { color: var(--orange); font-weight: 700; }
+
+        /* Done State */
+        .step.done .bubble { 
+            background: var(--success); color: #fff; border-color: transparent; transform: translateY(-6px); 
+        }
+        .step.done .label { color: var(--success); }
 
         /* Form Card */
         .form-card {
@@ -175,9 +241,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
 
         /* Headers */
-        .section-header {
-            padding: 25px 30px; color: white; margin-bottom: 25px;
-        }
+        .section-header { padding: 25px 30px; color: white; margin-bottom: 25px; }
         .bg-orange { background-color: var(--orange); }
         .bg-red { background: linear-gradient(90deg, #ff4b1f, #ff9068); }
         .bg-pink { background: linear-gradient(90deg, #e91e63, #f06292); }
@@ -197,14 +261,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         input:focus, select:focus { border-color: var(--orange); outline: none; background: #fff; }
 
-        /* Feature Checkboxes */
+        /* Feature Styles Updated */
         .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px; }
+        
+        /* Container for checkbox + input */
+        .feature-item {
+            display: flex; flex-direction: column;
+        }
+        
         .feature-box {
             border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px;
             display: flex; align-items: center; cursor: pointer; transition: 0.2s;
+            background: #f8f9fa;
         }
         .feature-box:hover { border-color: var(--orange); background: #fff8f0; }
         .feature-box input { width: auto; margin-right: 10px; }
+
+        /* The hidden detail input */
+        .detail-input {
+            margin-top: 8px;
+            display: none; /* Hidden by default */
+            font-size: 13px;
+            padding: 8px;
+            border-color: #f37021;
+            background: #fff;
+            animation: slideDown 0.2s ease-out;
+        }
+        @keyframes slideDown { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:translateY(0); } }
 
         /* Info/Tip Boxes */
         .info-box {
@@ -226,57 +309,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         .btn-submit { background: var(--pink); color: #fff; width: 200px; display: none; }
         .btn:hover { opacity: 0.9; }
 
-        /* Back Button Styling */
+        /* Back Button */
         .back-home-btn {
-            position: absolute;
-            top: 20px;
-            left: 20px; /* Adjusted to standard placement */
-            background: #fff;
-            border: 1px solid #ddd;
-            padding: 10px 20px;
-            border-radius: 30px;
-            cursor: pointer;
-            font-weight: 600;
-            color: var(--text-dark);
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            text-decoration: none;
-            transition: all 0.3s ease;
-            z-index: 100;
+            position: absolute; top: 20px; left: 190px;
+            background: #fff; border: 1px solid #ddd; padding: 10px 20px;
+            border-radius: 30px; cursor: pointer; font-weight: 600; color: var(--text-dark);
+            display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+            transition: all 0.3s ease; z-index: 100;
         }
-
         .back-home-btn:hover {
-            background: #fff8f0;
-            border-color: var(--orange);
-            color: var(--orange);
-            transform: translateX(-3px);
+            background: #fff8f0; border-color: var(--orange); color: var(--orange); transform: translateX(-3px);
         }
 
-        /* Signature Section Styling */
+        /* Signature Section */
         .signature-box {
-            display: none; /* Hidden by default */
-            background: #fff0f0;
-            border: 1px solid #ffcdd2;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-            animation: fadeIn 0.3s ease-in-out;
+            display: none; background: #fff0f0; border: 1px solid #ffcdd2; padding: 15px;
+            border-radius: 8px; margin-top: 15px; animation: fadeIn 0.3s ease-in-out;
         }
-
-        .signature-label {
-            color: #c62828;
-            font-weight: bold;
-            display: block;
-            margin-bottom: 8px;
-            font-size: 0.95rem;
-        }
-
-        .signature-note {
-            font-size: 0.85rem;
-            color: #c62828;
-            margin-top: 5px;
-        }
+        .signature-label { color: #c62828; font-weight: bold; display: block; margin-bottom: 8px; font-size: 0.95rem; }
+        .signature-note { font-size: 0.85rem; color: #c62828; margin-top: 5px; }
 
         /* Modal Styles */
         .modal-overlay {
@@ -284,21 +335,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000;
         }
         .modal-content {
-            background: #fff; width: 90%; max-width: 600px; padding: 30px; border-radius: 10px;
-            max-height: 80vh; overflow-y: auto;
+            background: #fff; width: 90%; max-width: 600px; padding: 30px; border-radius: 10px; max-height: 80vh; overflow-y: auto;
         }
-
         .tc-list { text-align: left; padding-left: 0; }
         .tc-list h4 { margin: 15px 0 5px; color: #333; font-size: 1rem; }
         .tc-list p { margin: 0; font-size: 0.9rem; color: #555; line-height: 1.5; }
         .tc-contact-box {
-            background: #fff5f5;
-            border: 1px solid #ffcdd2;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            color: #c62828;
-            font-size: 0.9rem;
+            background: #fff5f5; border: 1px solid #ffcdd2; padding: 15px; border-radius: 8px; margin-top: 20px; color: #c62828; font-size: 0.9rem;
         }
 
         /* Success Step */
@@ -310,9 +353,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         .success-list { text-align: left; background: #fff8f0; padding: 20px; border-radius: 8px; margin: 20px 0; }
         .success-list li { margin-bottom: 8px; color: #555; }
+        
+        /* New Tracking ID Box */
+        .tracking-box {
+            background: #e0f2fe;
+            border: 2px dashed #0ea5e9;
+            color: #0284c7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        .tracking-code {
+            display: block;
+            font-size: 1.4rem;
+            font-family: monospace;
+            margin-top: 5px;
+            letter-spacing: 1px;
+            color: #000;
+        }
 
         @media (max-width: 600px) {
             .back-home-btn { position: static; margin: 10px 0 0 20px; display: inline-flex; }
+            .steps { display: none; } 
+            .top-progress { display:block; }
+            .feature-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -324,21 +390,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <div class="main-container">
     <div class="top-header">
-        <h2>Find Your Dream Home</h2>
-        <p style="color:#666;">Tell us what you're looking for</p>
+        <h4>Request an agent</h4>
+        <p style="color:#666;">Tell us what you're looking for and our expert agents will help you find the perfect property</p>
         <button class="browse-btn" type="button" onclick="window.location.href='professionals.php'">
-            <i class="fas fa-eye"></i> Browse Real Estate Professionals
+            <i class="fas fa-eye"></i> Search Available Properties
         </button>
     </div>
 
-    <div class="progress-bar-wrapper">
-        <div class="progress-track"></div>
-        <div class="progress-fill" id="progressFill"></div>
-        <div class="step-item active" id="p-step1"><div class="step-icon"><i class="fas fa-user"></i></div><span class="step-label">Personal</span></div>
-        <div class="step-item" id="p-step2"><div class="step-icon"><i class="fas fa-home"></i></div><span class="step-label">Preferences</span></div>
-        <div class="step-item" id="p-step3"><div class="step-icon"><i class="fas fa-map-marker-alt"></i></div><span class="step-label">Location</span></div>
-        <div class="step-item" id="p-step4"><div class="step-icon"><i class="fas fa-dollar-sign"></i></div><span class="step-label">Financing</span></div>
-        <div class="step-item" id="p-step5"><div class="step-icon"><i class="fas fa-check"></i></div><span class="step-label">Finalize</span></div>
+    <div class="top-progress" role="progressbar">
+        <div id="progressFill" class="fill" style="width:0%"></div>
+    </div>
+
+    <div class="steps">
+        <div class="step active" id="p-step1" onclick="changeStepTo(1)"><div class="bubble">1</div><div class="label">Personal</div></div>
+        <div class="step" id="p-step2" onclick="changeStepTo(2)"><div class="bubble">2</div><div class="label">Preferences</div></div>
+        <div class="step" id="p-step3" onclick="changeStepTo(3)"><div class="bubble">3</div><div class="label">Location</div></div>
+        <div class="step" id="p-step4" onclick="changeStepTo(4)"><div class="bubble">4</div><div class="label">Financing</div></div>
+        <div class="step" id="p-step5" onclick="changeStepTo(5)"><div class="bubble">5</div><div class="label">Finalize</div></div>
     </div>
 
     <form id="mainForm" method="POST" action="">
@@ -361,7 +429,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <div class="row">
                     <div class="col"><label>Phone Number *</label><input type="text" name="phone" required></div>
-                    <div class="col"><label>Preferred Contact Method</label><select name="contact_method"><option>Email</option><option>Phone</option><option>Text</option></select></div>
+                    <div class="col">
+                        <label>Preferred Contact Method</label>
+                        <select name="contact_method" required>
+                            <option value="" disabled selected>Select Method</option>
+                            <option>Email</option>
+                            <option>Phone Call</option>
+                            <option>Text Message</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <div class="info-box info-orange"><strong>Privacy:</strong> Your information will only be used to send you property recommendations and updates.</div>
@@ -375,23 +451,100 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
             </div>
             <div class="form-body">
-                <div class="row"><div class="col"><label>Property Type</label><select name="property_type"><option>Single Family Home</option><option>Townhouse</option><option>Condominium</option><option>Villa</option><option>Any Type</option></select></div></div>
                 <div class="row">
-                    <div class="col"><label>Min Price</label><select name="min_price"><option value="0">Any</option><option value="200000">$200,000</option><option value="300000">$300,000</option><option value="400000">$400,000</option><option value="500000">$500,000</option></select></div>
-                    <div class="col"><label>Max Price</label><select name="max_price"><option value="0">Any</option><option value="500000">$500,000</option><option value="1000000">$1,000,000</option></select></div>
+                    <div class="col">
+                        <label>Property Type</label>
+                        <select name="property_type" required>
+                            <option value="" disabled selected>Select Type</option>
+                            <option>Single Family Home</option>
+                            <option>Townhouse</option>
+                            <option>Condominium</option>
+                            <option>Villa</option>
+                            <option>Any Type</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="row">
-                    <div class="col"><label>Min Bedrooms</label><select name="min_bedrooms"><option>2+</option><option>3+</option><option>4+</option></select></div>
-                    <div class="col"><label>Min Bathrooms</label><select name="min_bathrooms"><option>1+</option><option>2+</option><option>3+</option></select></div>
+                    <div class="col">
+                        <label>Min Price</label>
+                        <select name="min_price" required>
+                            <option value="" disabled selected>Select</option>
+                            <option value="200000">$200,000</option>
+                            <option value="300000">$300,000</option>
+                            <option value="400000">$400,000</option>
+                            <option value="500000">$500,000</option>
+                            <option value="600000">$600,000</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label>Max Price</label>
+                        <select name="max_price" required>
+                            <option value="" disabled selected>Select</option>
+                            <option value="400000">$400,000</option>
+                            <option value="500000">$500,000</option>
+                            <option value="600000">$600,000</option>
+                            <option value="700000">$700,000</option>
+                            <option value="800000">$800,000</option>
+                            <option value="1000000">$1,000,000+</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col">
+                        <label>Min Bedrooms</label>
+                        <select name="min_bedrooms" required>
+                            <option value="" disabled selected>Select</option>
+                            <option>1+</option>
+                            <option>2+</option>
+                            <option>3+</option>
+                            <option>4+</option>
+                            <option>5+</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label>Min Bathrooms</label>
+                        <select name="min_bathrooms" required>
+                            <option value="" disabled selected>Select</option>
+                            <option>1+</option>
+                            <option>2+</option>
+                            <option>3+</option>
+                            <option>4+</option>
+                        </select>
+                    </div>
                     <div class="col"><label>Min Sq Ft</label><input type="number" name="min_sq_feet" placeholder="e.g. 2000"></div>
                 </div>
+                
                 <label style="margin-top:10px;">Must-Have Features</label>
                 <div class="feature-grid">
-                    <div class="feature-box"><input type="checkbox" name="features[]" value="Garage"> Garage</div>
-                    <div class="feature-box"><input type="checkbox" name="features[]" value="Basement"> Basement</div>
-                    <div class="feature-box"><input type="checkbox" name="features[]" value="Updated Kitchen"> Updated Kitchen</div>
-                    <div class="feature-box"><input type="checkbox" name="features[]" value="Backyard"> Backyard</div>
+                    <div class="feature-item">
+                        <label class="feature-box">
+                            <input type="checkbox" name="feat_garage" value="Garage" onchange="toggleDetail('garage')"> Garage
+                        </label>
+                        <input type="number" id="detail_garage" name="detail_garage" class="detail-input" placeholder="How many garage? (e.g., 2)">
+                    </div>
+
+                    <div class="feature-item">
+                        <label class="feature-box">
+                            <input type="checkbox" name="feat_basement" value="Basement" onchange="toggleDetail('basement')"> Basement size
+                        </label>
+                        <input type="text" id="detail_basement" name="detail_basement" class="detail-input" placeholder="Full/Finished?">
+                    </div>
+
+                    <div class="feature-item">
+                        <label class="feature-box">
+                            <input type="checkbox" name="feat_kitchen" value="Updated Kitchen" onchange="toggleDetail('kitchen')"> Updated Kitchen
+                        </label>
+                        <input type="text" id="detail_kitchen" name="detail_kitchen" class="detail-input" placeholder="Specific requirements?">
+                    </div>
+
+                    <div class="feature-item">
+                        <label class="feature-box">
+                            <input type="checkbox" name="feat_backyard" value="Backyard" onchange="toggleDetail('backyard')"> Backyard
+                        </label>
+                        <input type="text" id="detail_backyard" name="detail_backyard" class="detail-input" placeholder="Size/Fenced?">
+                    </div>
                 </div>
+
             </div>
             <div class="info-box info-orange"><strong>Tip:</strong> Don't worry if you're not sure about all preferences - our agents will help refine your search!</div>
         </div>
@@ -421,11 +574,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </div>
             <div class="form-body">
                 <div class="row">
-                    <div class="col"><label>Pre-approved for mortgage?</label><select name="pre_approved"><option>Select</option><option>Yes, pre-approved</option><option>In progress</option><option>Not yet</option></select></div>
-                    <div class="col"><label>First-time home buyer?</label><select name="first_time_buyer"><option>Select</option><option>Yes</option><option>No</option></select></div>
+                    <div class="col">
+                        <label>Pre-approved for mortgage?</label>
+                        <select name="pre_approved" required>
+                            <option value="" disabled selected>Select</option>
+                            <option>Yes, pre-approved</option>
+                            <option>In progress</option>
+                            <option>Not yet</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label>First-time home buyer?</label>
+                        <select name="first_time_buyer" required>
+                            <option value="" disabled selected>Select</option>
+                            <option>Yes</option>
+                            <option>No</option>
+                        </select>
+                    </div>
                 </div>
                 <label>When are you looking to buy?</label>
-                <select name="buy_timeline"><option>Select timeframe</option><option>Immediately/ASAP</option><option>3-6 Months</option><option>6-12 Months</option></select>
+                <select name="buy_timeline" required>
+                    <option value="" disabled selected>Select timeframe</option>
+                    <option>Immediately/ASAP</option>
+                    <option>1-3 Months</option>
+                    <option>3-6 Months</option>
+                    <option>6-12 Months</option>
+                    <option>Just browsing</option>
+                </select>
             </div>
             <div class="info-box info-orange">
                 <h4 style="margin:0 0 5px; color:#d35400;">Need financing help?</h4>
@@ -513,6 +688,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <div class="success-icon"><i class="fas fa-check"></i></div>
         <h2>Request Submitted!</h2>
         <p>Thank you for choosing DreamHome Builders. Our team will review your preferences and contact you within <strong>24 hours</strong>.</p>
+        
+        <div class="tracking-box">
+            Your Tracking ID:
+            <span class="tracking-code"><?php echo htmlspecialchars($tracking_id); ?></span>
+        </div>
+
         <div class="success-list">
             <strong>What's next:</strong>
             <ul>
@@ -521,7 +702,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <li>Expert guidance throughout the process</li>
             </ul>
         </div>
-        <button class="btn btn-next" style="width:100%" onclick="window.location.href='index.php'">Return to Home</button>
+        
+        <div style="display:flex; gap:10px; flex-direction:column;">
+            <button class="btn btn-next" style="width:100%; background:#0284c7;" onclick="window.location.href='index.php'">Submit Another Request</button>
+            <button class="btn btn-prev" style="width:100%" onclick="window.location.href='index.php'">Return to Home</button>
+        </div>
     </div>
 </div>
 <?php endif; ?>
@@ -538,22 +723,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
         document.getElementById('step' + step).classList.add('active');
 
-        // Progress
+        // Progress Calculation
         const percent = ((step - 1) / (totalSteps - 1)) * 100;
         document.getElementById('progressFill').style.width = percent + '%';
 
-        // Circles
+        // BUBBLE UPDATE LOGIC
         for (let i = 1; i <= totalSteps; i++) {
             const item = document.getElementById('p-step' + i);
-            item.classList.remove('active', 'completed');
+            item.classList.remove('active', 'done'); 
+            
             if (i < step) {
-                item.classList.add('completed');
-                item.querySelector('.step-icon').innerHTML = '✔';
+                item.classList.add('done');
             } else if (i === step) {
                 item.classList.add('active');
-                item.querySelector('.step-icon').innerHTML = getIconForStep(i);
-            } else {
-                item.querySelector('.step-icon').innerHTML = getIconForStep(i);
             }
         }
 
@@ -568,9 +750,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-    function getIconForStep(i) {
-        const icons = ['<i class="fas fa-user"></i>', '<i class="fas fa-home"></i>', '<i class="fas fa-map-marker-alt"></i>', '<i class="fas fa-dollar-sign"></i>', '<i class="fas fa-check"></i>'];
-        return icons[i-1];
+    // Toggle logic for Feature Details
+    function toggleDetail(feature) {
+        const input = document.getElementById('detail_' + feature);
+        if (input.style.display === 'block') {
+            input.style.display = 'none';
+            input.value = ''; // Clear if unchecked
+        } else {
+            input.style.display = 'block';
+            input.focus();
+        }
+    }
+
+    // New function to allow clicking bubbles to navigate back
+    function changeStepTo(n) {
+        if (n < currentStep) {
+            currentStep = n;
+            showStep(currentStep);
+        }
     }
 
     function changeStep(n) {
@@ -584,6 +781,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         const inputs = activeStep.querySelectorAll('input[required], select[required]');
         let valid = true;
         inputs.forEach(input => {
+            // Check if value is empty or specifically "Select" (just in case)
             if (!input.value || input.value === "Select") {
                 input.style.border = "1px solid red";
                 valid = false;

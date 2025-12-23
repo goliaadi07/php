@@ -25,7 +25,7 @@ try {
     die("Database connection failed: " . $e->getMessage());
 }
 
-// FORCE NEW REGISTRATION: If ?new=1 is present, clear session and redirect clean
+// FORCE NEW REGISTRATION
 if (isset($_GET['new']) && $_GET['new'] === '1') {
     unset($_SESSION['agent_reg_id']);
     header("Location: index.php");
@@ -62,15 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $data['phone_alt']  = $get('phone_alt');
         $data['preferred_contact_method'] = $get('preferred_contact_method');
 
-        if ($data['first_name'] === '' || $data['last_name'] === '') {
-            $errors[] = 'First and last name are required.';
-        }
-        if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'Please enter a valid email address.';
-        }
-        if ($data['phone_primary'] === '') {
-            $errors[] = 'Primary phone is required.';
-        }
+        if ($data['first_name'] === '' || $data['last_name'] === '') $errors[] = 'First and last name are required.';
+        if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) $errors[] = 'Please enter a valid email address.';
+        if ($data['phone_primary'] === '') $errors[] = 'Primary phone is required.';
     }
     /* ----- STEP 2: Professional ----- */
     elseif ($step === 2) {
@@ -80,9 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $data['availability']     = $get('availability');
         $data['certifications']   = $get('certifications');
 
-        if ($data['license_number'] === '' || $data['brokerage_name'] === '') {
-            $errors[] = 'License number and brokerage name are required.';
-        }
+        if ($data['license_number'] === '' || $data['brokerage_name'] === '') $errors[] = 'License number and brokerage name are required.';
     }
     /* ----- STEP 3: Specialization ----- */
     elseif ($step === 3) {
@@ -91,11 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $data['property_types'] = $get('property_types');
         $data['price_ranges']   = $get('price_ranges');
 
-        if ($data['primary_role'] === '') {
-            $errors[] = 'Please select your primary role.';
-        }
+        if ($data['primary_role'] === '') $errors[] = 'Please select your primary role.';
     }
-    /* ----- STEP 4: Profile ----- */
+    /* ----- STEP 4: Profile & Photos ----- */
     elseif ($step === 4) {
         $data['biography']       = $get('biography');
         $data['brand_statement'] = $get('brand_statement');
@@ -105,8 +95,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $data['website_url']     = $get('website_url');
         $data['linkedin_url']    = $get('linkedin_url');
 
-        if ($data['biography'] === '') {
-            $errors[] = 'Professional biography is required.';
+        if ($data['biography'] === '') $errors[] = 'Professional biography is required.';
+
+        // --- FILE UPLOAD LOGIC ---
+        $uploadDir = 'uploads/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+
+        // 1. Profile Photo
+        if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
+            $ext = pathinfo($_FILES['profile_photo']['name'], PATHINFO_EXTENSION);
+            $newFileName = 'profile_' . time() . '_' . uniqid() . '.' . $ext;
+            if (move_uploaded_file($_FILES['profile_photo']['tmp_name'], $uploadDir . $newFileName)) {
+                $data['profile_photo'] = $newFileName;
+            }
+        }
+
+        // 2. Additional Photos
+        if (isset($_FILES['additional_photos'])) {
+            $uploadedFiles = [];
+            $count = count($_FILES['additional_photos']['name']);
+            for ($i = 0; $i < $count; $i++) {
+                if ($_FILES['additional_photos']['error'][$i] === UPLOAD_ERR_OK) {
+                    $ext = pathinfo($_FILES['additional_photos']['name'][$i], PATHINFO_EXTENSION);
+                    $newFileName = 'gallery_' . time() . '_' . $i . '_' . uniqid() . '.' . $ext;
+                    if (move_uploaded_file($_FILES['additional_photos']['tmp_name'][$i], $uploadDir . $newFileName)) {
+                        $uploadedFiles[] = $newFileName;
+                    }
+                }
+            }
+            if (!empty($uploadedFiles)) $data['additional_photos'] = implode(',', $uploadedFiles);
         }
     }
     /* ----- STEP 5: Finalize ----- */
@@ -114,12 +131,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $data['agree_terms'] = ($get('agree_terms') === '1') ? 1 : 0;
         $data['digital_signature'] = $get('digital_signature');
 
-        if ($data['agree_terms'] !== 1) {
-            $errors[] = 'You must agree to the Terms and Conditions.';
-        }
-        if (empty($data['digital_signature'])) {
-            $errors[] = 'Please provide your electronic signature.';
-        }
+        if ($data['agree_terms'] !== 1) $errors[] = 'You must agree to the Terms and Conditions.';
+        if (empty($data['digital_signature'])) $errors[] = 'Please provide your electronic signature.';
     } else {
         $errors[] = 'Invalid step.';
     }
@@ -130,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     try {
         if ($submission_id > 0) {
-            // UPDATE EXISTING ROW
+            // UPDATE EXISTING
             $set    = [];
             $params = [];
             foreach ($data as $k => $v) {
@@ -145,7 +158,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmt = $pdo->prepare($sql);
             $stmt->execute($params);
         } else {
-            // INSERT NEW ROW
+            // INSERT NEW (Generate Tracking ID Here)
+            $tracking_id = 'AGT-' . strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8)); // Generate ID
+            $data['tracking_id'] = $tracking_id;
+
             $cols    = [];
             $holders = [];
             $params  = [];
@@ -158,8 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $holders[]                  = ":last_completed_step";
             $params[':last_completed_step'] = $step;
 
-            $sql  = "INSERT INTO agentregister (" . implode(',', $cols) .
-                    ") VALUES (" . implode(',', $holders) . ")";
+            $sql  = "INSERT INTO agentregister (" . implode(',', $cols) . ") VALUES (" . implode(',', $holders) . ")";
             $stmt = $pdo->prepare($sql);
             $stmt->execute($params);
 
@@ -167,18 +182,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $_SESSION['agent_reg_id'] = $submission_id;
         }
 
-        // *** CRITICAL FIX ***
-        // If Step 5 is successfully saved, UNSET the session.
-        // This forces the next submission (even a page reload) to create a NEW row.
-        if ($step === 5) {
-            unset($_SESSION['agent_reg_id']);
-        }
-
-        jsonResponse([
+        $response = [
             'ok'            => true,
             'submission_id' => $submission_id,
             'step'          => $step,
-        ]);
+        ];
+
+        // If Step 5 (Final), fetch the tracking ID to send back to the UI
+        if ($step === 5) {
+            $stmt = $pdo->prepare("SELECT tracking_id FROM agentregister WHERE id = ?");
+            $stmt->execute([$submission_id]);
+            $response['tracking_id'] = $stmt->fetchColumn(); // Send ID to frontend
+            
+            unset($_SESSION['agent_reg_id']);
+        }
+
+        jsonResponse($response);
+
     } catch (Exception $e) {
         jsonResponse(['ok' => false, 'errors' => ['DB error: ' . $e->getMessage()]]);
     }
@@ -190,6 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Real Estate Agent Registration</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -300,6 +321,39 @@ body{
     padding: 12px 16px; border-radius: 6px; font-size: 13px; margin-top: 20px; line-height: 1.5;
 }
 
+/* PHOTO UPLOAD CSS */
+.photo-section-title {
+    font-size: 16px; font-weight: 700; color: #111827; margin: 30px 0 15px; 
+    display: flex; align-items: center; gap: 8px; border-top:1px solid #e5e7eb; padding-top:20px;
+}
+.photo-row { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 25px; }
+.upload-box {
+    border: 2px dashed #d1d5db; border-radius: 10px; background: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; cursor: pointer; position: relative; color: #6b7280; transition: all 0.2s;
+}
+.upload-box:hover { border-color: #2563eb; background: #f0f9ff; color: #2563eb; }
+.upload-box.has-file { border-color: #059669; background: #f0fdf4; color: #059669; }
+
+.upload-box i { font-size: 24px; margin-bottom: 8px; color: inherit; }
+.upload-box span { font-size: 13px; font-weight: 600; display:block; }
+.upload-box .file-name { font-size: 12px; font-weight: 600; color: #166534; margin-bottom: 4px; word-break: break-all; }
+.upload-box .replace-text { font-size: 11px; text-decoration: underline; color: #2563eb; font-weight: 500; }
+.upload-box input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index:10; }
+
+.upload-box.square { width: 140px; height: 140px; flex-shrink: 0; }
+.upload-box.wide { width: 100%; height: 110px; }
+
+.photo-desc { padding-top: 10px; }
+.photo-desc h4 { margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #111827; }
+.photo-desc p { margin: 0; font-size: 13px; color: #6b7280; line-height: 1.5; }
+
+.blue-tip {
+    background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a;
+    padding: 14px; border-radius: 8px; font-size: 13px; margin-bottom: 20px;
+    display: flex; gap: 8px; align-items: center;
+}
+
 /* Pills & Chips */
 .pill-row{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;}
 .pill-option{
@@ -395,7 +449,7 @@ body{
     justify-content: center; margin: 0 auto 20px;
 }
 .success-actions-row {
-    display: flex; gap: 15px; justify-content: center; width: 100%;
+    display: flex; gap: 15px; justify-content: center; width: 100%; margin-top:25px;
 }
 .btn-return {
     background: #fff; border: 1px solid #e5e7eb; color: #374151;
@@ -407,6 +461,25 @@ body{
     padding: 10px 20px; border-radius: 999px; cursor: pointer; font-weight: 600;
 }
 .btn-resubmit:hover { background:#047857; }
+.tracking-box {
+    background: #eff6ff;
+    border: 1px dashed #2563eb;
+    color: #1e3a8a;
+    padding: 10px;
+    border-radius: 8px;
+    margin: 20px 0;
+    font-size: 14px;
+    font-weight: 500;
+}
+.tracking-id-text {
+    font-family: monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: #2563eb;
+    letter-spacing: 1px;
+}
+.success-steps { text-align: left; margin: 15px 0; font-size: 14px; color: #374151; }
+.success-steps li { margin-bottom: 8px; }
 
 /* Actions */
 .actions{
@@ -476,10 +549,26 @@ body{
 </div>
 
 <div id="successModal" class="modal-overlay">
-  <div class="modal-content" style="text-align:center; padding: 40px; max-width: 500px;">
+  <div class="modal-content" style="text-align:center; padding: 40px; max-width: 550px;">
     <div class="success-icon">✓</div>
     <h2 style="margin:0 0 10px; font-size:24px;">Registration Submitted!</h2>
-    <p style="color:#666; margin-bottom:30px;">Thank you for registering. Your profile has been saved successfully and is under review.</p>
+    <p style="color:#666; margin-bottom:15px; line-height:1.5;">
+        Thank you for joining our network of real estate professionals! Our team will review your application and contact you within <strong>48-72 hours</strong> to complete your profile setup.
+    </p>
+
+    <div class="tracking-box">
+        Your Tracking ID: <span id="finalTrackingId" class="tracking-id-text">Loading...</span>
+    </div>
+
+    <div style="text-align:left; background:#f9fafb; padding:15px; border-radius:8px;">
+        <strong style="display:block;margin-bottom:8px;color:#111827;">What's next:</strong>
+        <ul style="margin:0; padding-left:20px; color:#4b5563; font-size:14px; line-height:1.6;">
+            <li>Profile verification and approval</li>
+            <li>Access to our client matching system</li>
+            <li>Welcome to our professional network</li>
+        </ul>
+    </div>
+
     <div class="success-actions-row">
         <button class="btn-return" onclick="window.location.href='index.php'">Return to Home</button>
         <button class="btn-resubmit" onclick="window.location.href='?new=1'">Submit Another</button>
@@ -539,7 +628,7 @@ body{
       <div id="msg" class="hidden"></div>
       <div id="err" class="hidden"></div>
 
-      <form id="agentForm" method="post" novalidate>
+      <form id="agentForm" method="post" novalidate enctype="multipart/form-data">
 
         <div class="panel" data-step="1">
           <div class="form-row">
@@ -576,6 +665,8 @@ body{
                 <option>Email</option>
                 <option>Phone</option>
                 <option>Text</option>
+                <option>Any Method</option>
+
               </select>
             </div>
           </div>
@@ -657,6 +748,14 @@ body{
                 <div class="pill-sub">I work with both buyers and sellers</div>
               </div>
             </div>
+            <div class="pill-option" data-value="custom_build">
+              <div class="dot"></div>
+              <div>
+                <div class="pill-main">Custom build</div>
+                <div class="pill-sub">I specialize in custom home building</div>
+              </div>
+            </div>
+            
           </div>
           <input type="hidden" name="primary_role" id="primary_role">
 
@@ -712,6 +811,34 @@ body{
               <label for="brand_statement">Personal Brand Statement</label>
               <textarea id="brand_statement" name="brand_statement" placeholder="Your unique value proposition..."></textarea>
             </div>
+          </div>
+
+          <div class="photo-section-title"><i class="fas fa-camera"></i> Professional Photos</div>
+          
+          <div class="photo-row">
+              <div class="upload-box square">
+                  <i class="fas fa-arrow-up-from-bracket"></i>
+                  <span class="main-text">Upload</span>
+                  <input type="file" name="profile_photo" accept="image/*">
+              </div>
+              <div class="photo-desc">
+                  <h4>Professional headshot</h4>
+                  <p>A clear, professional photo helps clients connect with you. Recommended size: 400x400px</p>
+              </div>
+          </div>
+
+          <div style="margin-bottom:20px;">
+              <label class="photo-desc" style="display:block;margin-bottom:8px;font-weight:600;">Additional Photos (Optional)</label>
+              <div class="upload-box wide">
+                  <i class="fas fa-arrow-up-from-bracket"></i>
+                  <span class="main-text">Upload Additional Photos</span>
+                  <span class="sub-text">Office, team, or property photos (0/6)</span>
+                  <input type="file" name="additional_photos[]" multiple accept="image/*">
+              </div>
+          </div>
+
+          <div class="blue-tip" style="margin-bottom:25px;">
+              <strong>Tip:</strong> Photos of your office, team, or successful projects help build trust with potential clients.
           </div>
           <div class="form-row">
             <div class="col input">
@@ -809,6 +936,7 @@ body{
   const closeTerms1  = qs('#closeTermsTop');
   const closeTerms2  = qs('#closeTermsBtn');
   const successModal = qs('#successModal');
+  const finalId      = qs('#finalTrackingId');
 
   let current = 0;
   const last  = panels.length - 1;
@@ -872,9 +1000,6 @@ body{
       
       if(isChecked){
         sigSection.style.display = 'block'; // Show Signature
-        // Only enable button if signature also filled? 
-        // For now, button enable/disable depends on check, 
-        // but we will validate signature content on click.
         submitBtn.disabled = false;
         submitBtn.classList.remove('disabled');
       } else {
@@ -901,6 +1026,47 @@ body{
       if (!chip) return;
       chip.classList.toggle('selected');
     });
+  });
+  
+  // File Upload Logic (Display Name & Replace)
+  qsa('input[type="file"]').forEach(input => {
+      input.addEventListener('change', function() {
+          const box = this.closest('.upload-box');
+          const fileCount = this.files.length;
+          
+          if (fileCount > 0) {
+              box.classList.add('has-file');
+              
+              // Clear previous "Upload" text if any, show replace logic
+              let nameDisplay = box.querySelector('.file-name');
+              let replaceText = box.querySelector('.replace-text');
+              
+              if(!nameDisplay) {
+                 nameDisplay = document.createElement('div');
+                 nameDisplay.className = 'file-name';
+                 box.insertBefore(nameDisplay, input);
+              }
+              if(!replaceText) {
+                 replaceText = document.createElement('div');
+                 replaceText.className = 'replace-text';
+                 replaceText.textContent = "Replace";
+                 box.insertBefore(replaceText, input);
+              }
+
+              // Update Content
+              const fileName = fileCount === 1 ? this.files[0].name : `${fileCount} files selected`;
+              nameDisplay.textContent = fileName;
+              
+              // Hide original "Upload" label if it exists
+              const originalSpan = box.querySelector('.main-text');
+              if(originalSpan) originalSpan.style.display = 'none';
+              const subText = box.querySelector('.sub-text');
+              if(subText) subText.style.display = 'none';
+              
+              const icon = box.querySelector('i');
+              if(icon) icon.className = 'fas fa-check-circle'; // Change icon to check
+          }
+      });
   });
 
   function validateStep(idx){
@@ -941,37 +1107,25 @@ body{
   }
 
   function collectPayload(idx){
-    const fd = new FormData();
+    const fd = new FormData(form);
     fd.append('action','save_step');
     fd.append('step', idx+1);
     if (submission_id) fd.append('submission_id', submission_id);
 
-    if (idx === 0){
-      ['first_name','last_name','email','phone_primary','phone_alt','preferred_contact_method']
-        .forEach(k=>fd.append(k, form.elements[k] ? form.elements[k].value : ''));
-    }
-    else if (idx === 1){
-      ['license_number','brokerage_name','experience_level','availability','certifications']
-        .forEach(k=>fd.append(k, form.elements[k] ? form.elements[k].value : ''));
-    }
-    else if (idx === 2){
-      fd.append('primary_role', qs('#primary_role').value || '');
-      fd.append('service_areas', collectMultiFromGrid('service_areas'));
-      fd.append('property_types', collectMultiFromGrid('property_types'));
-      fd.append('price_ranges', collectMultiFromGrid('price_ranges'));
+    // Override manual fields
+    if (idx === 2){
+      fd.set('primary_role', qs('#primary_role').value || '');
+      fd.set('service_areas', collectMultiFromGrid('service_areas'));
+      fd.set('property_types', collectMultiFromGrid('property_types'));
+      fd.set('price_ranges', collectMultiFromGrid('price_ranges'));
     }
     else if (idx === 3){
-      fd.append('biography', form.elements['biography'] ? form.elements['biography'].value : '');
-      fd.append('brand_statement', form.elements['brand_statement'] ? form.elements['brand_statement'].value : '');
-      fd.append('homes_closed_last_year', form.elements['homes_closed_last_year'] ? form.elements['homes_closed_last_year'].value : '');
-      fd.append('avg_days_to_close', form.elements['avg_days_to_close'] ? form.elements['avg_days_to_close'].value : '');
-      fd.append('languages', collectMultiFromGrid('languages'));
-      fd.append('website_url', form.elements['website_url'] ? form.elements['website_url'].value : '');
-      fd.append('linkedin_url', form.elements['linkedin_url'] ? form.elements['linkedin_url'].value : '');
+      // Bio/Brand handled by FormData
+      fd.set('languages', collectMultiFromGrid('languages'));
     }
     else if (idx === 4){
-      fd.append('agree_terms', agreeTerms.checked ? '1' : '0');
-      fd.append('digital_signature', sigInput.value.trim());
+      fd.set('agree_terms', agreeTerms.checked ? '1' : '0');
+      fd.set('digital_signature', sigInput.value.trim());
     }
     return fd;
   }
@@ -1013,6 +1167,12 @@ body{
       
       // Success! Update ID and Show Modal
       submission_id = res.submission_id || submission_id;
+      
+      // Inject the Tracking ID received from server
+      if(res.tracking_id) {
+          finalId.textContent = res.tracking_id;
+      }
+
       msgBox.classList.add('hidden'); // Hide simple message
       successModal.style.display = 'flex'; // Show popup
       

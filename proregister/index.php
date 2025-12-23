@@ -1,7 +1,17 @@
 <?php
 // index.php - Professional Directory Registration
 session_start();
-require_once __DIR__ . '/db.php'; 
+require_once __DIR__ . '/db.php'; // Uncomment when DB is ready
+
+// Mock DB connection for demo purposes if file doesn't exist
+if (!isset($pdo)) {
+    try {
+        // Create a dummy PDO object or handle connection here
+        // $pdo = new PDO("mysql:host=localhost;dbname=test", "root", "");
+    } catch (PDOException $e) {
+        // die("DB Connection failed");
+    }
+}
 
 // Reset Logic
 if (isset($_GET['new']) && $_GET['new'] === '1') {
@@ -17,24 +27,18 @@ function jsonResponse($data) {
 }
 
 $submission_id = $_SESSION['prof_submission_id'] ?? 0;
+$tracking_code = $_SESSION['prof_tracking_code'] ?? null;
 
 // ================= AJAX HANDLER =================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_step') {
     
-    // DB Connection Check
-    if (!isset($pdo)) {
-        // Fallback for demo purposes if db.php isn't set up yet
-        // In production, this would stop execution
-        // jsonResponse(['ok' => false, 'errors' => ['Database connection failed']]);
-    }
-
     $step = (int)$_POST['step']; 
     $errors = [];
     $data = [];
     
     $get = fn($k) => isset($_POST[$k]) ? trim($_POST[$k]) : null;
 
-    // --- VALIDATION LOGIC (Kept same as your code) ---
+    // --- VALIDATION LOGIC ---
     if ($step === 1) {
         $data['professional_type'] = $get('professional_type');
         $data['first_name'] = $get('first_name');
@@ -60,7 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     elseif ($step === 3) {
         $data['specialties'] = $get('specialties');
-        $data['certifications'] = $get('certifications');
         $data['languages'] = $get('languages');
         $data['bio'] = $get('bio');
 
@@ -75,6 +78,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if (!$data['preferred_contact_method']) $errors[] = "Please select a preferred contact method.";
     }
     elseif ($step === 5) {
+        $data['work_experience'] = $get('work_experience');
+        $data['education'] = $get('education');
+        $data['certifications'] = $get('certifications');
+        $data['awards'] = $get('awards');
+
+        if (!$data['work_experience'] || strlen($data['work_experience']) < 50) $errors[] = "Work Experience must be at least 50 characters.";
+        if (!$data['education'] || strlen($data['education']) < 50) $errors[] = "Education background must be at least 50 characters.";
+    }
+    elseif ($step === 6) {
         $data['electronic_signature'] = $get('electronic_signature');
         $data['agreed_terms'] = (isset($_POST['agreed_terms']) && $_POST['agreed_terms'] === '1') ? 1 : 0;
 
@@ -84,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     if (!empty($errors)) jsonResponse(['ok' => false, 'errors' => $errors]);
 
-    // --- DB SAVE (Only runs if $pdo exists) ---
+    // --- DB SAVE ---
     try {
         if (isset($pdo)) {
             if ($submission_id > 0) {
@@ -105,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 // Insert
                 $cols = array_keys($data);
                 $vals = array_values($data);
+                // GENERATE TRACKING CODE HERE
                 $tracking_code = 'PRO-' . strtoupper(substr(uniqid(), -6));
                 
                 $placeholders = array_map(fn($c) => ":$c", $cols);
@@ -124,14 +137,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $_SESSION['prof_tracking_code'] = $tracking_code;
             }
         } else {
-            // Mock ID for demo if DB not connected
-            if($submission_id == 0) $submission_id = 123;
+            // Mock ID for demo if no DB
+            if($submission_id == 0) {
+                $submission_id = 123;
+                $tracking_code = 'PRO-' . strtoupper(substr(uniqid(), -6));
+                $_SESSION['prof_tracking_code'] = $tracking_code;
+            }
         }
 
         jsonResponse([
             'ok' => true, 
             'submission_id' => $submission_id,
-            'step' => $step
+            'step' => $step,
+            'tracking_code' => $tracking_code ?? $_SESSION['prof_tracking_code']
         ]);
 
     } catch (Exception $e) {
@@ -148,13 +166,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
     :root {
-        --primary: #7c3aed; /* Purple Theme */
-        --primary-dark: #6d28d9;
+        --primary: #9333ea; /* Purple Theme */
+        --primary-dark: #7e22ce;
         --success: #22c55e;
-        --bg: #f3f4f6;
-        --border: #e5e7eb;
-        --text: #1f2937;
-        --text-muted: #6b7280;
+        --bg: #f8fafc;
+        --border: #e2e8f0;
+        --text: #334155;
+        --text-muted: #94a3b8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); padding-bottom: 60px; }
@@ -172,47 +190,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     .container { max-width: 900px; margin: 60px auto 40px; padding: 0 20px; }
     
     /* Header */
-    .header-text { text-align: center; margin-bottom: 40px; }
+    .header-text { text-align: center; margin-bottom: 30px; }
     .header-text h1 { font-size: 26px; font-weight: 700; color: #111827; }
     .header-text p { color: var(--text-muted); margin-top: 5px; font-size: 15px; }
 
-    /* --- NEW PROGRESS BAR STYLING --- */
-    .progress-wrapper {
-        display: flex; justify-content: space-between; position: relative;
-        margin-bottom: 50px; max-width: 800px; margin-left: auto; margin-right: auto;
+    /* --- PROGRESS BAR STYLING --- */
+    .top-progress { 
+        height: 10px; 
+        background: #e2e8f0; 
+        border-radius: 999px; 
+        margin: 16px auto 20px; 
+        overflow: hidden; 
+        max-width: 800px;
     }
-    .progress-track-bg {
-        position: absolute; top: 20px; left: 0; width: 100%; height: 4px;
-        background: #e5e7eb; z-index: 1; transform: translateY(-50%); border-radius: 4px;
+    .top-progress .fill { 
+        height: 100%; 
+        width: 0; 
+        background: linear-gradient(90deg, #1f2937, var(--primary)); 
+        transition: width .3s ease; 
     }
-    .progress-fill {
-        position: absolute; top: 20px; left: 0; height: 4px;
-        background: var(--primary); z-index: 1; transform: translateY(-50%);
-        transition: width 0.4s ease; width: 0%; border-radius: 4px;
-    }
-    .step-item {
-        position: relative; z-index: 2; text-align: center; width: 80px; cursor: pointer;
-    }
-    .step-circle {
-        width: 40px; height: 40px; background: #fff; border: 2px solid #e5e7eb;
-        border-radius: 50%; display: flex; align-items: center; justify-content: center;
-        margin: 0 auto 8px; font-weight: 600; color: #9ca3af; transition: all 0.3s;
-        font-size: 14px;
-    }
-    .step-label { font-size: 13px; color: #9ca3af; font-weight: 500; }
 
-    /* Active State */
-    .step-item.active .step-circle {
-        border-color: var(--primary); background: var(--primary); color: #fff;
-        box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.15); transform: scale(1.1);
+    .steps { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        margin: 24px auto 30px; 
+        max-width: 850px; 
+        padding: 0 10px;
     }
-    .step-item.active .step-label { color: var(--primary); font-weight: 700; }
+    .step { 
+        flex: 1; 
+        text-align: center; 
+        position: relative; 
+        cursor: pointer;
+    }
+    .bubble {
+        width: 55px; 
+        height: 55px; 
+        border-radius: 50%; 
+        background: #fff; 
+        border: 2px solid #e2ecff;
+        display: inline-flex; 
+        align-items: center; 
+        justify-content: center; 
+        font-weight: 700;
+        box-shadow: 0 10px 30px rgba(15,23,42,0.08); 
+        transition: all 0.3s;
+        font-size: 16px;
+        color: var(--text-muted);
+    }
+    .step .label { 
+        margin-top: 8px; 
+        color: var(--text-muted); 
+        font-size: 13px; 
+        font-weight: 500;
+    }
 
-    /* Completed State */
-    .step-item.completed .step-circle {
-        background: var(--primary); border-color: var(--primary); color: #fff;
+    /* Active State (Pops up + Gradient) */
+    .step.active .bubble { 
+        transform: translateY(-10px); 
+        background: linear-gradient(180deg, var(--primary), #7c3aed); 
+        color: #fff; 
+        border-color: transparent; 
+        box-shadow: 0 15px 35px rgba(124, 58, 237, 0.3);
     }
-    .step-item.completed .step-label { color: var(--primary); }
+    .step.active .label {
+        color: var(--primary);
+        font-weight: 700;
+    }
+
+    /* Done State (Green) */
+    .step.done .bubble { 
+        background: var(--success); 
+        color: #fff; 
+        border-color: transparent; 
+        transform: translateY(-6px); 
+    }
+    .step.done .label {
+        color: var(--success);
+    }
 
     /* Form Card */
     .card { background: #fff; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); overflow: hidden; }
@@ -220,7 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     .section-header { 
         margin-bottom: 30px; padding: 20px 30px; 
-        background: linear-gradient(90deg, #7c3aed, #8b5cf6); /* Purple Header */
+        background: linear-gradient(90deg, #9333ea, #a855f7); 
         color: white; margin: -40px -40px 30px -40px;
     }
     .section-title { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
@@ -230,88 +286,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     /* Inputs */
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
     .full-width { grid-column: span 2; }
-    .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #374151; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #334155; }
     .form-group input, .form-group select, .form-group textarea {
-        width: 100%; padding: 12px 16px; border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit; font-size: 14px; background: #f9fafb; transition: border 0.2s;
+        width: 100%; padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; background: #f8fafc; transition: border 0.2s;
     }
     .form-group input:focus, .form-group select:focus, .form-group textarea:focus { 
-        outline: none; border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1); 
+        outline: none; border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.1); 
     }
     .required::after { content: " *"; color: #ef4444; }
-    .helper-text { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+    .helper-text { font-size: 12px; color: #94a3b8; margin-top: 4px; }
 
     /* Review Grid */
-    .review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; background: #f9fafb; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e5e7eb; }
-    .review-item h4 { font-size: 12px; color: #6b7280; font-weight: 500; margin-bottom: 4px; }
-    .review-item p { font-size: 14px; color: #111827; font-weight: 600; min-height: 20px; }
+    .review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0; }
+    .review-item h4 { font-size: 12px; color: #64748b; font-weight: 500; margin-bottom: 4px; }
+    .review-item p { font-size: 14px; color: #1e293b; font-weight: 600; min-height: 20px; }
 
     /* Buttons */
-    .actions { display: flex; justify-content: space-between; margin-top: 30px; padding-top: 20px; border-top: 1px solid #f3f4f6; }
-    .btn { padding: 12px 28px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; font-weight: 600; cursor: pointer; font-size: 14px; transition: 0.2s; }
-    .btn:hover { background: #f9fafb; }
+    .actions { display: flex; justify-content: space-between; margin-top: 30px; padding-top: 20px; border-top: 1px solid #f1f5f9; }
+    .btn { padding: 12px 28px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; font-weight: 600; cursor: pointer; font-size: 14px; transition: 0.2s; }
+    .btn:hover { background: #f8fafc; }
     .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-    .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 6px rgba(124, 58, 237, 0.2); }
+    .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 6px rgba(147, 51, 234, 0.2); }
     .btn:disabled { opacity: 0.7; cursor: not-allowed; }
 
     .hidden { display: none !important; }
     .error-msg { background: #fef2f2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; border: 1px solid #fecaca; }
 
-    /* Terms Popup */
+    /* Success & Modal Styles */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     .modal-card { background: #fff; width: 90%; max-width: 500px; padding: 25px; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); max-height: 80vh; overflow-y: auto; }
     .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 15px; }
-    .modal-text { font-size: 14px; color: #4b5563; line-height: 1.6; margin-bottom: 10px; }
-    .modal-btn { width: 100%; background: #111827; color: #fff; padding: 10px; border-radius: 6px; margin-top: 15px; cursor: pointer; border: none; font-weight: 600; }
-
-    /* Success Screen */
-    .success-container { text-align: center; padding: 20px; }
-    .success-icon { width: 80px; height: 80px; background: #ecfdf5; color: #059669; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px; margin: 0 auto 20px; }
-    .success-list { text-align: left; background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px auto; max-width: 500px; border: 1px solid #e5e7eb; }
-    .success-list li { margin-bottom: 8px; color: #4b5563; font-size: 14px; list-style-position: inside; }
-
-    @media (max-width: 600px) { .grid, .review-grid { grid-template-columns: 1fr; } .progress-wrapper { display: none; } }
-    /* SUCCESS POPUP MODAL */
-.success-modal {
-    position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: rgba(0,0,0,0.55);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
-}
-
-.success-modal-card {
-    background: #fff;
-    width: 90%;
-    max-width: 480px;
-    padding: 35px 25px;
-    border-radius: 14px;
-    text-align: center;
-    animation: popIn 0.35s ease-out;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-}
-
-@keyframes popIn {
-    from { transform: scale(0.6); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
-}
-
-.success-check {
-    width: 80px;
-    height: 80px;
-    margin: 0 auto 20px;
-    border-radius: 50%;
-    background: #ecfdf5;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #059669;
-    font-size: 42px;
-    font-weight: bold;
-}
-
+    .modal-text { font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 10px; }
+    .success-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    .success-modal-card { background: #fff; width: 90%; max-width: 500px; padding: 35px 30px; border-radius: 16px; text-align: center; animation: popIn 0.35s ease-out; box-shadow: 0 10px 30px rgba(0,0,0,0.15); }
+    .success-check { width: 80px; height: 80px; margin: 0 auto 20px; border-radius: 50%; background: #ecfdf5; display: flex; align-items: center; justify-content: center; color: #059669; font-size: 42px; font-weight: bold; }
+    
+    .tracking-box { margin: 20px 0; padding: 15px; background: #f3f4f6; border-radius: 8px; border: 1px dashed #9ca3af; }
+    .tracking-code { display: block; font-family: monospace; font-size: 18px; font-weight: 700; color: #1f2937; letter-spacing: 1px; margin-top: 5px; }
+    
+    .next-steps { text-align: left; background: #f9fafb; padding: 15px 20px; border-radius: 8px; margin: 20px 0; }
+    .next-steps h4 { margin: 0 0 8px; font-size: 14px; color: #111827; }
+    .next-steps ul { margin: 0; padding-left: 20px; color: #4b5563; font-size: 13px; line-height: 1.6; }
+    
+    @keyframes popIn { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @media (max-width: 600px) { .grid, .review-grid { grid-template-columns: 1fr; } .steps { display: none; } .top-progress { display:block; } }
 </style>
 </head>
 <body>
@@ -326,37 +344,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         <p>Register to showcase your expertise and connect with potential clients</p>
     </div>
 
-    <div class="progress-wrapper">
-        <div class="progress-track-bg"></div>
-        <div class="progress-fill" id="progressBar"></div>
-        
-        <div class="step-item active" data-step="1">
-            <div class="step-circle">1</div>
-            <div class="step-label">Info</div>
-        </div>
-        <div class="step-item" data-step="2">
-            <div class="step-circle">2</div>
-            <div class="step-label">Details</div>
-        </div>
-        <div class="step-item" data-step="3">
-            <div class="step-circle">3</div>
-            <div class="step-label">Expertise</div>
-        </div>
-        <div class="step-item" data-step="4">
-            <div class="step-circle">4</div>
-            <div class="step-label">Contact</div>
-        </div>
-        <div class="step-item" data-step="5">
-            <div class="step-circle">5</div>
-            <div class="step-label">Review</div>
-        </div>
+    <div class="top-progress" role="progressbar">
+        <div id="progressBar" class="fill" style="width:0%"></div>
     </div>
+
+    <div class="steps">
+        <div class="step active" data-step="1"><div class="bubble">1</div><div class="label">Type&Info</div></div>
+        <div class="step" data-step="2"><div class="bubble">2</div><div class="label">Professional</div></div>
+        <div class="step" data-step="3"><div class="bubble">3</div><div class="label">Expertise</div></div>
+        <div class="step" data-step="4"><div class="bubble">4</div><div class="label">Contact</div></div>
+        <div class="step" data-step="5"><div class="bubble">5</div><div class="label">Experience</div></div>
+        <div class="step" data-step="6"><div class="bubble">6</div><div class="label">Review</div></div>
+    </div>
+
+    <div id="errorBox" class="error-msg hidden"></div>
 
     <form id="profForm">
         <div class="card">
             <div class="card-body">
-                <div id="errorBox" class="error-msg hidden"></div>
-
+                
                 <div class="panel" data-step="1">
                     <div class="section-header">
                         <div class="section-title">
@@ -442,7 +448,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div class="panel hidden" data-step="3">
                     <div class="section-header">
                         <div class="section-title">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg>
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138z"></path></svg>
                             Expertise & Specialties
                         </div>
                         <div class="section-desc">Highlight your expertise and specializations</div>
@@ -452,11 +458,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <label class="required">Specialties</label>
                         <input type="text" name="specialties" placeholder="e.g., First-time buyers, Luxury homes, Investment properties">
                         <div class="helper-text">Separate multiple specialties with commas</div>
-                    </div>
-
-                    <div class="form-group full-width" style="margin-bottom: 20px;">
-                        <label>Certifications (Optional)</label>
-                        <input type="text" name="certifications" placeholder="e.g., CRS, ABR, GRI">
                     </div>
 
                     <div class="form-group full-width" style="margin-bottom: 20px;">
@@ -508,6 +509,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div class="panel hidden" data-step="5">
                     <div class="section-header">
                         <div class="section-title">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                            Work Experience, Education & Achievements
+                        </div>
+                        <div class="section-desc">Provide your work experience, education, and professional achievements</div>
+                    </div>
+
+                    <div class="form-group full-width" style="margin-bottom: 20px;">
+                        <label class="required">Work Experience</label>
+                        <textarea name="work_experience" rows="4" placeholder="Describe your work experience, including previous roles and responsibilities..."></textarea>
+                        <div class="helper-text">Minimum 50 characters. This will be displayed on your profile.</div>
+                    </div>
+
+                    <div class="form-group full-width" style="margin-bottom: 20px;">
+                        <label class="required">Education</label>
+                        <textarea name="education" rows="4" placeholder="List your educational background, including degrees and institutions..."></textarea>
+                        <div class="helper-text">Minimum 50 characters. This will be displayed on your profile.</div>
+                    </div>
+
+                    <div class="form-group full-width" style="margin-bottom: 20px;">
+                        <label>Professional Certifications (Optional)</label>
+                        <input type="text" name="certifications" placeholder="e.g., NAR, CMA, GRI">
+                        <div class="helper-text">Separate multiple certifications with commas</div>
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label>Awards & Recognitions (Optional)</label>
+                        <input type="text" name="awards" placeholder="e.g., Top Agent, Best Service">
+                        <div class="helper-text">Separate multiple awards with commas</div>
+                    </div>
+                </div>
+
+                <div class="panel hidden" data-step="6">
+                    <div class="section-header">
+                        <div class="section-title">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                             Review & Submit
                         </div>
@@ -524,6 +559,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <div class="review-item"><h4>License Number</h4><p id="revLic">-</p></div>
                         <div class="review-item"><h4>Experience</h4><p id="revExp">-</p></div>
                         <div class="review-item"><h4>Service Areas</h4><p id="revArea">-</p></div>
+                        <div class="review-item"><h4>Professional Bio</h4><p id="revBio" style="font-weight:normal; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">-</p></div>
                     </div>
                     
                     <div class="form-group full-width" style="margin-bottom: 20px;">
@@ -550,23 +586,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     </form>
 </div>
 
-<!-- SUCCESS POPUP MODAL -->
 <div id="successPopup" class="success-modal hidden">
     <div class="success-modal-card">
         <div class="success-check">✓</div>
 
         <h2 style="font-size:22px; font-weight:700; margin-bottom:8px;">Registration Submitted!</h2>
-        <p style="color:#6b7280; margin-bottom:12px;">
-            Thank you for joining our professional network.
+        
+        <p style="color:#6b7280; margin-bottom:12px; line-height:1.5;">
+            Our team will review your application and contact you within <strong>48-72 hours</strong> to complete your profile setup.
         </p>
 
-        <p style="color:#6b7280; font-size:14px;">
-            Our team will contact you within <strong>48–72 hours</strong> for profile approval.
-        </p>
+        <div class="tracking-box">
+            Your Tracking ID:
+            <span class="tracking-code" id="finalTrackingId">Loading...</span>
+        </div>
+
+        <div class="next-steps">
+            <h4>What's next:</h4>
+            <ul>
+                <li>Profile verification and approval</li>
+                <li>Access to our client directory</li>
+                <li>Marketing and promotional opportunities</li>
+                <li>Lead generation tools</li>
+            </ul>
+        </div>
 
         <button onclick="window.location.href='/'"
             class="btn btn-primary"
-            style="width:100%; margin-top:20px;">
+            style="width:100%; margin-top:10px;">
             Return to Home
         </button>
 
@@ -612,10 +659,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     let currentStep = 1;
-    const totalSteps = 5;
+    const totalSteps = 6;
     
     const panels = document.querySelectorAll('.panel');
-    const bubbles = document.querySelectorAll('.step-item');
+    const bubbles = document.querySelectorAll('.step');
     const progressFill = document.getElementById('progressBar');
     const errorBox = document.getElementById('errorBox');
     
@@ -624,8 +671,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const submitBtn = document.getElementById('submitBtn');
     
     const form = document.getElementById('profForm');
-    const mainContainer = document.getElementById('mainFormContainer');
-    const successScreen = document.getElementById('successScreen');
     
     // Terms Modal Logic
     const openTerms = document.getElementById('openTerms');
@@ -645,7 +690,6 @@ document.addEventListener('DOMContentLoaded', () => {
         panels.forEach(p => p.classList.toggle('hidden', parseInt(p.dataset.step) !== currentStep));
         
         // Progress Bar Logic (Fill based on current step index)
-        // Step 1: 0%, Step 2: 25%, Step 3: 50%, Step 4: 75%, Step 5: 100%
         const percent = ((currentStep - 1) / (totalSteps - 1)) * 100;
         progressFill.style.width = percent + '%';
         
@@ -657,24 +701,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // Step Bubbles
         bubbles.forEach((b, idx) => {
             const stepNum = idx + 1;
-            b.classList.remove('active', 'completed');
+            b.classList.remove('active', 'done');
             
             if (stepNum === currentStep) {
                 b.classList.add('active');
-                b.querySelector('.step-circle').textContent = stepNum;
             } else if (stepNum < currentStep) {
-                b.classList.add('completed');
-                b.querySelector('.step-circle').innerHTML = '✓'; // Add tick mark
-            } else {
-                b.querySelector('.step-circle').textContent = stepNum;
+                b.classList.add('done');
             }
         });
         
-        // Populate Summary on Step 5
-        if (currentStep === 5) {
+        // Populate Summary on Step 6
+        if (currentStep === 6) {
             populateReview();
         }
 
+        // Hide error on step change
         errorBox.classList.add('hidden');
         window.scrollTo(0, 0);
     }
@@ -692,6 +733,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('revLic').textContent = getVal('license_number');
         document.getElementById('revExp').textContent = getVal('experience_years');
         document.getElementById('revArea').textContent = getVal('service_areas');
+        document.getElementById('revBio').textContent = getVal('bio'); // Changed from Education to Bio
     }
 
     function handleSubmission() {
@@ -716,14 +758,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     currentStep++;
                     updateUI();
                 } else {
+                    // Update Tracking ID in Popup
+                    if(data.tracking_code) {
+                        document.getElementById('finalTrackingId').textContent = data.tracking_code;
+                    }
+                    
                     // Final Success → Show popup
                     document.getElementById("successPopup").classList.remove("hidden");
-
                 }
             } else {
                 errorBox.innerHTML = data.errors.join('<br>');
                 errorBox.classList.remove('hidden');
-                window.scrollTo(0,0);
+                // Scroll to top to ensure error is seen
+                window.scrollTo({ top: 0, behavior: 'smooth' });
             }
         })
         .catch(err => {
@@ -732,6 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.textContent = originalText;
             errorBox.textContent = "Network error. Please try again.";
             errorBox.classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         });
     }
 
